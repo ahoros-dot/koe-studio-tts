@@ -1,0 +1,353 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <!-- キーを抜かれる経路を減らすため、外部のスクリプト・書体は読まず、通信先は自分と Gemini API だけに限る -->
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data: blob:; media-src 'self' blob: data:; connect-src 'self' https://generativelanguage.googleapis.com; font-src 'self'; object-src 'none'; base-uri 'self'; form-action 'none'; manifest-src 'self'; worker-src 'self'">
+  <meta name="referrer" content="no-referrer">
+  <title>こえスタジオ</title>
+  <meta name="description" content="Gemini 3.8 Flash TTS を日本語の画面で試せる非公式の音声生成スタジオ。台本・演技の指示・声の聞き比べ・声のデザイン・字幕の書き出し。">
+  <meta name="theme-color" content="#f4f4f2" media="(prefers-color-scheme: light)">
+  <meta name="theme-color" content="#16171a" media="(prefers-color-scheme: dark)">
+  <link rel="manifest" href="manifest.json">
+  <link rel="icon" href="icon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="style.css">
+  <script type="module" src="app.js"></script>
+</head>
+<body>
+  <a class="skip" href="#main">本文へ移動</a>
+
+  <header class="topbar">
+    <div class="brand">
+      <img src="icon.svg" alt="" width="28" height="28">
+      <span class="brand-name">こえスタジオ</span>
+      <!-- Google の製品名を使うので、Google 公式のものではないことを上の帯で示す（スマホでは「非公式」だけ出す） -->
+      <span class="brand-sub">Gemini 3.8 Flash TTS の非公式プレイグラウンド</span>
+      <span class="brand-tag">非公式</span>
+    </div>
+    <div class="topbar-right">
+      <button type="button" class="key-chip" id="keyChip" data-view-link="settings"></button>
+      <button type="button" class="icon-btn" id="themeBtn" aria-label="テーマを切り替える" title="テーマ"></button>
+    </div>
+  </header>
+
+  <div class="demo-banner" id="demoBanner" hidden>
+    キーなしで試すモードです。生成すると、台本ではなく選んだ声の試聴音声が返ります。
+    <button type="button" class="link-btn" data-view-link="settings">設定を開く</button>
+  </div>
+
+  <div class="shell">
+    <nav class="sidenav" aria-label="画面">
+      <button type="button" class="nav-item" data-view="generate">生成</button>
+      <button type="button" class="nav-item" data-view="compare">聞き比べ</button>
+      <button type="button" class="nav-item" data-view="design">声をつくる</button>
+      <button type="button" class="nav-item" data-view="history">履歴</button>
+      <button type="button" class="nav-item" data-view="settings">設定</button>
+    </nav>
+
+    <main id="main" tabindex="-1">
+      <!-- ===== 生成 ===== -->
+      <section class="view" id="view-generate" aria-labelledby="h-generate">
+        <div class="gen-layout">
+          <div class="editor">
+            <div class="editor-head">
+              <h1 id="h-generate">台本</h1>
+              <div class="editor-tools">
+                <label class="sr-only" for="sampleSelect">例から始める</label>
+                <select id="sampleSelect" class="select-sm"></select>
+                <button type="button" class="btn-ghost btn-sm" id="clearScript">空にする</button>
+              </div>
+            </div>
+            <p class="hint">台本は書いたとおりに読まれます。読み方の指示は「演技の指示」へ。<code>&lt;laugh&gt;</code> などのタグと、2人のときの <code>|あいづち|</code> だけは読まれません。</p>
+
+            <ol class="parts" id="parts"></ol>
+            <button type="button" class="btn-ghost add-part" id="addPart">＋ パートを追加</button>
+
+            <section class="yomi" aria-labelledby="h-yomi">
+              <div class="yomi-head">
+                <h2 id="h-yomi">読みのチェック</h2>
+                <span class="yomi-count" id="yomiCount"></span>
+              </div>
+              <ul class="yomi-list" id="yomiList"></ul>
+            </section>
+
+            <!-- 結果は台本の列の中に置き、PC では画面の下に貼り付く（右の設定パネルの生成ボタンを隠さないように） -->
+            <section class="result" id="result" hidden aria-label="結果">
+              <div class="result-main">
+                <button type="button" class="play-btn" id="resultPlay" aria-label="再生"></button>
+                <canvas class="wave" id="resultWave" height="56" aria-label="波形（クリックで位置を移動）"></canvas>
+                <span class="time" id="resultTime"></span>
+              </div>
+              <div class="result-meta" id="resultMeta"></div>
+              <div class="result-actions">
+                <button type="button" class="btn-ghost btn-sm" id="dlWav">WAV</button>
+                <button type="button" class="btn-ghost btn-sm" id="dlSrt">字幕 SRT</button>
+                <button type="button" class="btn-ghost btn-sm" id="dlVtt">字幕 VTT</button>
+                <button type="button" class="btn-ghost btn-sm" id="showCode">コードを表示</button>
+              </div>
+            </section>
+          </div>
+
+          <aside class="runpanel" id="runpanel" aria-label="生成の設定">
+            <div class="run-scroll">
+              <div class="field">
+                <label for="modelSelect">モデル</label>
+                <select id="modelSelect"></select>
+                <p class="help" id="modelNote"></p>
+              </div>
+
+              <div class="field">
+                <span class="label" id="modeLabel">話し手</span>
+                <div class="segmented" role="radiogroup" aria-labelledby="modeLabel">
+                  <button type="button" role="radio" data-mode="solo">1人</button>
+                  <button type="button" role="radio" data-mode="duo">2人の掛け合い</button>
+                </div>
+              </div>
+
+              <div id="voiceFields"></div>
+
+              <div class="field">
+                <span class="label">出力</span>
+                <label class="check"><input type="checkbox" id="optTrim"> 前後の無音を詰める</label>
+                <label class="check"><input type="checkbox" id="optLevel"> 音量をそろえる（話している所の平均 −16dB）</label>
+              </div>
+            </div>
+
+            <div class="run-foot">
+              <p class="estimate" id="estimate"></p>
+              <div class="run-actions">
+                <button type="button" class="btn-primary" id="runBtn">生成する</button>
+                <button type="button" class="btn-ghost" id="stopBtn" hidden>中止</button>
+              </div>
+              <p class="run-status" id="runStatus" role="status" aria-live="polite"></p>
+            </div>
+          </aside>
+        </div>
+      </section>
+
+      <!-- ===== 聞き比べ ===== -->
+      <section class="view" id="view-compare" aria-labelledby="h-compare" hidden>
+        <h1 id="h-compare">声の聞き比べ</h1>
+        <p class="lead">同じ台本を複数の声で作って並べます。声ごとに素の音量が違うので、そろえてから比べると公平です。リクエストは声の数だけ使います。</p>
+        <div class="compare-form">
+          <div class="field">
+            <label for="cmpText">台本</label>
+            <textarea id="cmpText" rows="3"></textarea>
+          </div>
+          <div class="field">
+            <label for="cmpStyle">演技の指示（空欄でもよい）</label>
+            <input type="text" id="cmpStyle" autocomplete="off">
+          </div>
+          <div class="field">
+            <span class="label">比べる声（最大6つ）</span>
+            <div class="chips" id="cmpVoices"></div>
+            <button type="button" class="btn-ghost btn-sm" id="cmpAddVoice">＋ 声を選ぶ</button>
+          </div>
+          <div class="compare-actions">
+            <button type="button" class="btn-primary" id="cmpRun">聞き比べを始める</button>
+            <button type="button" class="btn-ghost" id="cmpStop" hidden>中止</button>
+            <label class="check"><input type="checkbox" id="cmpLevel" checked> 音量をそろえて聞く</label>
+          </div>
+          <p class="run-status" id="cmpStatus" role="status" aria-live="polite"></p>
+        </div>
+        <div class="cmp-grid" id="cmpGrid"></div>
+      </section>
+
+      <!-- ===== 声をつくる ===== -->
+      <section class="view" id="view-design" aria-labelledby="h-design" hidden>
+        <h1 id="h-design">声をつくる</h1>
+        <p class="lead">どんな人の声かを文章で書くと、新しい声を作ってあなたの Google のプロジェクトに保存します（200声まで、最後に使ってから1年で消えます）。作った声は「生成」の1人モードで選べます。</p>
+        <div class="design-layout">
+          <form class="design-form" id="designForm" novalidate>
+            <div class="field">
+              <label for="dName">名前</label>
+              <input type="text" id="dName" maxlength="60" autocomplete="off" required>
+            </div>
+            <div class="field">
+              <label for="dDesc">どんな人の声か</label>
+              <textarea id="dDesc" rows="4" required></textarea>
+              <p class="help">その日の気分ではなく、どんな人かを書きます（年齢・声の質・高さ・なまり・話す速さ）。気分や演技は、生成のときの「演技の指示」で付けます。</p>
+              <div class="chips" id="dExamples"></div>
+            </div>
+            <div class="field-row">
+              <div class="field">
+                <label for="dGender">性別</label>
+                <select id="dGender">
+                  <option value="">指定しない</option>
+                  <option value="female">女性</option>
+                  <option value="male">男性</option>
+                </select>
+              </div>
+              <div class="field">
+                <label for="dLang">言語</label>
+                <select id="dLang">
+                  <option value="ja-JP">日本語</option>
+                  <option value="en-US">英語（アメリカ）</option>
+                  <option value="en-GB">英語（イギリス）</option>
+                  <option value="ko-KR">韓国語</option>
+                  <option value="zh-CN">中国語</option>
+                </select>
+              </div>
+            </div>
+            <div class="compare-actions">
+              <button type="submit" class="btn-primary" id="dRun">声をつくる</button>
+            </div>
+            <p class="run-status" id="dStatus" role="status" aria-live="polite"></p>
+            <div class="design-result" id="dResult" hidden></div>
+          </form>
+
+          <section class="myvoices" aria-labelledby="h-myvoices">
+            <div class="yomi-head">
+              <h2 id="h-myvoices">自分の声</h2>
+              <button type="button" class="btn-ghost btn-sm" id="dRefresh">一覧を更新</button>
+            </div>
+            <ul class="myvoice-list" id="myVoiceList"></ul>
+          </section>
+        </div>
+        <p class="note">録音から声をまねる機能（Voice Replication）は入れていません。本人の同意の録音が必要で、誰でも使える公開アプリでは悪用を防ぎきれないためです。</p>
+      </section>
+
+      <!-- ===== 履歴 ===== -->
+      <section class="view" id="view-history" aria-labelledby="h-history" hidden>
+        <div class="editor-head">
+          <h1 id="h-history">履歴</h1>
+          <button type="button" class="btn-ghost btn-sm" id="histClear">すべて削除</button>
+        </div>
+        <p class="lead" id="histUsage">生成した音声は、このブラウザの中にだけ保存されます。</p>
+        <ul class="hist-list" id="histList"></ul>
+      </section>
+
+      <!-- ===== 設定 ===== -->
+      <section class="view" id="view-settings" aria-labelledby="h-settings" hidden>
+        <h1 id="h-settings">設定</h1>
+
+        <section class="panel" aria-labelledby="h-key">
+          <h2 id="h-key">Gemini API キー</h2>
+          <p class="help">キーは <strong>このブラウザの中にだけ</strong> 保存し、送り先は <code>generativelanguage.googleapis.com</code> だけです。書き出すファイルやコード表示には含めません。料金はキーの持ち主の Google アカウントにかかります。</p>
+          <form id="keyForm" novalidate>
+            <div class="field">
+              <label for="keyInput">API キー</label>
+              <div class="input-row">
+                <input type="password" id="keyInput" autocomplete="off" spellcheck="false">
+                <button type="button" class="btn-ghost btn-sm" id="keyShow">表示</button>
+              </div>
+              <p class="help">キーは <a href="https://aistudio.google.com/apikey" target="_blank" rel="noopener noreferrer">Google AI Studio の API キーのページ</a> で作れます。</p>
+            </div>
+            <fieldset class="field">
+              <legend class="label">保存のしかた</legend>
+              <label class="check"><input type="radio" name="keyMode" value="local"> この端末に保存する</label>
+              <label class="check"><input type="radio" name="keyMode" value="session"> タブを閉じたら忘れる</label>
+            </fieldset>
+            <div class="compare-actions">
+              <button type="submit" class="btn-primary">保存</button>
+              <button type="button" class="btn-ghost" id="keyTest">接続を確かめる</button>
+              <button type="button" class="btn-ghost danger" id="keyClear">キーを消す</button>
+            </div>
+            <p class="run-status" id="keyStatus" role="status" aria-live="polite"></p>
+          </form>
+        </section>
+
+        <section class="panel" aria-labelledby="h-limits">
+          <h2 id="h-limits">リクエストの間隔</h2>
+          <p class="help">音声を作るリクエストは1本ずつ順に送ります。有料の Tier 1 は1分10回までなので、既定は 6.5秒です。「回数の上限」と出るときは広げてください。</p>
+          <p class="help">Tier 1 には1日の上限もあります（モデルごとに1日100回。2026-10-04 に確かめた値）。太平洋時間の0時（日本時間の16時、冬は17時）に数え直されます。聞き比べは声の数だけ、試聴音声を作るのも1回ずつ数えられます。同じキーなら、AI Studio などほかの場所で使った分も同じ枠から減ります。</p>
+          <div class="field field-narrow">
+            <label for="intervalInput">間隔（秒）</label>
+            <input type="number" id="intervalInput" min="0" max="120" step="0.5">
+          </div>
+        </section>
+
+        <section class="panel" aria-labelledby="h-dict">
+          <h2 id="h-dict">読み辞書</h2>
+          <p class="help">英字や固有名詞の読みを登録すると、「読みのチェック」で置き換えの候補に出ます。</p>
+          <form class="dict-form" id="dictForm" novalidate>
+            <div class="field">
+              <label for="dictWord">語</label>
+              <input type="text" id="dictWord" autocomplete="off">
+            </div>
+            <div class="field">
+              <label for="dictRead">読み</label>
+              <input type="text" id="dictRead" autocomplete="off">
+            </div>
+            <button type="submit" class="btn-ghost">追加</button>
+          </form>
+          <ul class="dict-list" id="dictList"></ul>
+        </section>
+
+        <section class="panel" aria-labelledby="h-misc">
+          <h2 id="h-misc">そのほか</h2>
+          <label class="check"><input type="checkbox" id="demoToggle"> キーなしで試す（API を呼ばず、試聴音声を結果として返す）</label>
+          <div class="field field-narrow">
+            <label for="themeSelect">テーマ</label>
+            <select id="themeSelect">
+              <option value="auto">端末に合わせる</option>
+              <option value="light">ライト</option>
+              <option value="dark">ダーク</option>
+            </select>
+          </div>
+          <div class="compare-actions">
+            <button type="button" class="btn-ghost danger" id="resetAll">設定と下書きを初期化</button>
+          </div>
+        </section>
+
+        <p class="note">このアプリは非公式です。Google の音声生成ガイド・開発者ガイド（2026-10-04 確認）をもとに作っています。</p>
+      </section>
+    </main>
+  </div>
+
+  <nav class="tabbar" aria-label="画面">
+    <button type="button" class="nav-item" data-view="generate">生成</button>
+    <button type="button" class="nav-item" data-view="compare">聞き比べ</button>
+    <button type="button" class="nav-item" data-view="design">つくる</button>
+    <button type="button" class="nav-item" data-view="history">履歴</button>
+    <button type="button" class="nav-item" data-view="settings">設定</button>
+  </nav>
+
+  <!-- 声を選ぶ -->
+  <dialog class="sheet" id="voiceDialog" aria-labelledby="h-voice">
+    <div class="sheet-head">
+      <h2 id="h-voice">声を選ぶ</h2>
+      <button type="button" class="icon-btn" data-close aria-label="閉じる">×</button>
+    </div>
+    <div class="tabs" role="tablist" id="voiceTabs">
+      <button type="button" role="tab" data-tab="core">定番の30声</button>
+      <button type="button" role="tab" data-tab="library">日本語ライブラリ</button>
+      <button type="button" role="tab" data-tab="mine">自分の声</button>
+    </div>
+    <div class="filters" id="voiceFilters"></div>
+    <ul class="voice-list" id="voiceList"></ul>
+    <p class="help sheet-foot" id="voiceFoot"></p>
+  </dialog>
+
+  <!-- コード -->
+  <dialog class="sheet sheet-wide" id="codeDialog" aria-labelledby="h-code">
+    <div class="sheet-head">
+      <h2 id="h-code">コード</h2>
+      <button type="button" class="icon-btn" data-close aria-label="閉じる">×</button>
+    </div>
+    <div class="tabs" role="tablist" id="codeTabs">
+      <button type="button" role="tab" data-tab="curl">curl</button>
+      <button type="button" role="tab" data-tab="js">JavaScript</button>
+      <button type="button" role="tab" data-tab="json">リクエスト（JSON）</button>
+    </div>
+    <pre class="code" id="codeBox" tabindex="0"></pre>
+    <div class="sheet-actions">
+      <p class="help">キーは <code>$GEMINI_API_KEY</code> の環境変数から読みます。本物のキーはここに入りません。</p>
+      <button type="button" class="btn-ghost btn-sm" id="codeCopy">コピー</button>
+    </div>
+  </dialog>
+
+  <!-- 確認 -->
+  <dialog class="sheet sheet-small" id="confirmDialog" aria-labelledby="h-confirm">
+    <h2 id="h-confirm"></h2>
+    <p id="confirmBody"></p>
+    <div class="sheet-actions">
+      <button type="button" class="btn-ghost" data-close>やめる</button>
+      <button type="button" class="btn-primary danger-fill" id="confirmOk">実行する</button>
+    </div>
+  </dialog>
+
+  <div class="toast" id="toast" role="status" aria-live="polite" hidden></div>
+</body>
+</html>

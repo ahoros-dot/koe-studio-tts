@@ -1,0 +1,100 @@
+{
+ "samples": [
+  {
+   "id": "news",
+   "title": "ニュース",
+   "desc": "落ち着いた読み上げ",
+   "mode": "solo",
+   "voice": "Charon",
+   "parts": [
+    { "text": "こんばんは。七時のニュースです。今日は全国の多くの地点で、この秋いちばんの冷え込みとなりました。", "style": "calm, authoritative evening news anchor" }
+   ]
+  },
+  {
+   "id": "cm",
+   "title": "CM",
+   "desc": "速く、元気よく",
+   "mode": "solo",
+   "voice": "Zephyr",
+   "parts": [
+    { "text": "台本を書いて、ボタンを押すだけ。あなたの言葉が、すぐに声になります！ こえスタジオ、はじめよう。", "style": "fast and energetic, like a TV commercial, short pauses between phrases" }
+   ]
+  },
+  {
+   "id": "story",
+   "title": "昔話の朗読",
+   "desc": "寝る前の読み聞かせ",
+   "mode": "solo",
+   "voice": "Sulafat",
+   "parts": [
+    { "text": "むかしむかし、ある山のふもとに、おじいさんとおばあさんが住んでいました。<breath> ある朝のこと、おばあさんが川へ洗濯に行くと……", "style": "warm, gentle storyteller reading a bedtime story to a child, slow pace" }
+   ]
+  },
+  {
+   "id": "shift",
+   "title": "口調の切り替え",
+   "desc": "ささやき → 叫び → 息切れ",
+   "mode": "solo",
+   "voice": "Algenib",
+   "parts": [
+    { "text": "みなさん、静かに。<breath> いま、すぐそこに鹿がいます。", "style": "hushed, reverent wildlife documentary whisper" },
+    { "text": "<gasp> こっちに来ました！ 車に戻って！", "style": "loud, panicked shout" },
+    { "text": "<pant> ふう……。自然って、すごいですね。", "style": "out of breath, slightly in shock" }
+   ]
+  },
+  {
+   "id": "asmr",
+   "title": "ASMR",
+   "desc": "ささやき声",
+   "mode": "solo",
+   "voice": "Enceladus",
+   "parts": [
+    { "text": "今日は、新しいノートを開けてみます。<breath> 紙の手ざわり、わかりますか？ <short pause> ゆっくり、めくっていきますね。", "style": "ASMR, quietly whispered, very close to the microphone" }
+   ]
+  },
+  {
+   "id": "sports",
+   "title": "実況",
+   "desc": "だんだん盛り上がる",
+   "mode": "solo",
+   "voice": "Fenrir",
+   "parts": [
+    { "text": "さあ、最後の直線！ 先頭はまだ譲らない！ <gasp> 外から一気に来た！ 並んだ、並んだ、ゴール！", "style": "excited sports commentator, rapid-fire, rising intensity" }
+   ]
+  },
+  {
+   "id": "radio",
+   "title": "ふたりのラジオ",
+   "desc": "掛け合いとあいづち",
+   "mode": "duo",
+   "speakers": [{ "speaker": "ハル", "voice": "Leda" }, { "speaker": "ソラ", "voice": "Puck" }],
+   "parts": [
+    { "speaker": "ハル", "text": "ねえ、新しい声のAI、もう試した？ |まだ| すごく自然なんだよ。", "style": "excited, sharing news with a friend" },
+    { "speaker": "ソラ", "text": "へえ、どれくらい自然なの？", "style": "curious, leaning in" },
+    { "speaker": "ハル", "text": "<laugh> この会話も、実はAIなんだって。|えっ| ほんとだよ。", "style": "playful, building up to the reveal" }
+   ]
+  },
+  {
+   "id": "osaka",
+   "title": "大阪と東京",
+   "desc": "日本語ライブラリの声",
+   "mode": "duo",
+   "speakers": [{ "speaker": "あかね", "voice": "ja-jp-advisor-4" }, { "speaker": "けんた", "voice": "ja-jp-advisor-10" }],
+   "parts": [
+    { "speaker": "あかね", "text": "なあなあ、駅前に新しいパン屋さんできたん知ってる？ |え、どこ？| 角のとこ！", "style": "chatty, friendly gossip" },
+    { "speaker": "けんた", "text": "知らなかったです。今度、行ってみますね。", "style": "polite, mildly interested" },
+    { "speaker": "あかね", "text": "ほんま、めっちゃおいしいから。絶対やで！", "style": "enthusiastic" }
+   ]
+  },
+  {
+   "id": "yomi",
+   "title": "読みのチェック",
+   "desc": "数字・記号・英字の例",
+   "mode": "solo",
+   "voice": "Zephyr",
+   "parts": [
+    { "text": "今日の最高気温は12.5度、降水確率は30%です。会議は10時〜11時、参加者は4人。資料はPDFで送ります。", "style": "" }
+   ]
+  }
+ ]
+}

@@ -1,0 +1,14 @@
+{
+  "name": "こえスタジオ",
+  "short_name": "こえスタジオ",
+  "description": "Gemini 3.8 Flash TTS を日本語の画面で試せる音声生成スタジオ",
+  "lang": "ja",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "background_color": "#f4f4f2",
+  "theme_color": "#f4f4f2",
+  "icons": [
+    { "src": "icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any" }
+  ]
+}

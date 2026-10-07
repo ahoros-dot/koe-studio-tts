@@ -37,6 +37,9 @@ export function buildTtsBody({ model, mode, parts, voice, speakers }) {
   return {
     model,
     input: [{ type: "user_input", content }],
+    // Interactions API は既定で、やりとり（台本と作った音声）をプロジェクトのログに保存する（有料なら55日、AI Studio の Logs に出る）。
+    // こえスタジオは会話の続き（previous_interaction_id）も background も使わないので保存しない。2026-10-07 に TTS でも通ることを確認
+    store: false,
     response_format: { type: "audio" },
     generation_config: {
       speech_config: mode === "duo" ? { mode: "conversational", speakers: speakers.map(({ speaker, voice }) => ({ speaker, voice })) } : [{ voice }],
@@ -242,11 +245,19 @@ export function createClient({ getKey, getInterval = () => 6500, onStatus = () =
     return { voices: json.voices || [], nextPageToken: json.next_page_token || json.nextPageToken || null };
   }
 
+  // 自分で作った声（prompted）は GET でお試し音声（sample_audio）が返る。一覧（voices.list）には付いてこない。
+  // 音声の生成ではないので、試聴のために TTS の回数を使わずに済む（録音からまねた声には付いていない）
+  async function getVoice(id, { signal } = {}) {
+    const v = await call("GET", `/voices/${encodeURIComponent(voiceId(id))}`, null, { signal, retries: 2 });
+    const s = v.sample_audio && v.sample_audio.data ? v.sample_audio : null;
+    return { voice: v, sample: s ? decodeAudioBytes(base64ToBytes(s.data)) : null };
+  }
+
   async function deleteVoice(id, { signal } = {}) {
     return call("DELETE", `/voices/${encodeURIComponent(voiceId(id))}`, null, { signal, retries: 2 });
   }
 
-  return { tts, createVoice, listVoices, deleteVoice, pending: () => pending };
+  return { tts, createVoice, listVoices, getVoice, deleteVoice, pending: () => pending };
 }
 
 // API が "voices/voice_…" と資源名で返しても、"voice_…" だけで返しても使えるようにする

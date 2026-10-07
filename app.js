@@ -295,7 +295,28 @@ audio.addEventListener("ended", () => { syncPlayButtons(); drawResultWave(); });
 audio.addEventListener("pause", syncPlayButtons);
 audio.addEventListener("play", () => { syncPlayButtons(); if (playingKey === "result") animateResult(); });
 
-// 試聴: 同梱の MP3 → このブラウザに残した試聴音声 → キーがあればその場で作って残す（1回分のリクエストを使う）
+// 試聴音声を用意して、このブラウザに残す。
+// 自分で作った声は GET /voices/{id} にお試し音声が付いてくるので、それを使う（音声の生成ではないので1日の回数を使わない）。
+// それ以外の声と、お試し音声が付いていない声（録音からまねた声など）だけ、TTS で1回作る
+const sampleNotice = (id) =>
+  voiceInfo(id).kind === "mine" ? "試聴音声を読み込んでいます（生成の回数は使いません）" : "試聴音声を作っています（1回分のリクエストを使います）";
+
+async function obtainSample(id, label) {
+  if (voiceInfo(id).kind === "mine") {
+    const { sample } = await client.getVoice(id);
+    if (sample) {
+      const blob = wavBlob(levelSamples(trimSilence(sample.samples, sample.rate), sample.rate, LEVEL_DB).samples, sample.rate);
+      await store.putSample(id, blob).catch(() => {});
+      return blob;
+    }
+  }
+  const a = await client.tts(buildTtsBody({ model: MODELS[0].id, mode: "solo", voice: id, parts: [{ text: catalog.sampleText || "こんにちは。今日はどんなお話を読みましょうか。" }] }), { label });
+  const blob = wavBlob(levelSamples(trimSilence(a.samples, a.rate), a.rate, LEVEL_DB).samples, a.rate);
+  await store.putSample(id, blob).catch(() => {});
+  return blob;
+}
+
+// 試聴: 同梱の MP3 → このブラウザに残した試聴音声 → キーがあれば obtainSample で用意する
 const making = new Set();
 async function previewUrl(id) {
   const v = voiceInfo(id);
@@ -304,16 +325,14 @@ async function previewUrl(id) {
   let blob = await store.getSample(id).catch(() => null);
   if (!blob) {
     if (state.settings.demo || !store.getKey()) {
-      toast(v.kind === "mine" ? "この声の試聴音声はまだありません（「声をつくる」の一覧で作れます）" : "この声の試聴音声は同梱していません。API キーがあれば、その場で作れます");
+      toast(v.kind === "mine" ? "この声の試聴音声はまだありません（「声をつくる」の一覧で読み込めます）" : "この声の試聴音声は同梱していません。API キーがあれば、その場で作れます");
       return null;
     }
     if (making.has(id)) return null;
     making.add(id);
-    toast("試聴音声を作っています（1回分のリクエストを使います）");
+    toast(sampleNotice(id));
     try {
-      const a = await client.tts(buildTtsBody({ model: MODELS[0].id, mode: "solo", voice: id, parts: [{ text: catalog.sampleText || "こんにちは。今日はどんなお話を読みましょうか。" }] }), { label: "preview" });
-      blob = wavBlob(levelSamples(trimSilence(a.samples, a.rate), a.rate, LEVEL_DB).samples, a.rate);
-      await store.putSample(id, blob).catch(() => {});
+      blob = await obtainSample(id, "preview");
     } catch (e) {
       toast(e.message);
       return null;
@@ -1289,7 +1308,7 @@ async function renderMyVoices() {
       <div class="mv-meta">${escapeHtml(v.id)}${v.expire ? `・${new Date(v.expire).toLocaleDateString("ja-JP")} まで（使うと延びる）` : ""}</div>
       <div class="mv-actions">
         <button type="button" class="btn-ghost btn-sm" data-use-voice="${escapeHtml(v.id)}">この声で生成</button>
-        ${has[i] ? "" : `<button type="button" class="btn-ghost btn-sm" data-make-sample="${escapeHtml(v.id)}">試聴を作る</button>`}
+        ${has[i] ? "" : `<button type="button" class="btn-ghost btn-sm" data-make-sample="${escapeHtml(v.id)}">試聴を読み込む</button>`}
         <button type="button" class="btn-ghost btn-sm danger" data-del-voice="${escapeHtml(v.id)}">削除</button>
       </div>
     </li>`)
@@ -1328,11 +1347,10 @@ document.addEventListener("click", async (e) => {
   if (mk) {
     const id = mk.dataset.makeSample;
     mk.disabled = true;
-    setStatus($("#dStatus"), "試聴音声を作っています…");
+    setStatus($("#dStatus"), `${sampleNotice(id)}…`);
     try {
-      const a = await client.tts(buildTtsBody({ model: MODELS[0].id, mode: "solo", voice: id, parts: [{ text: catalog.sampleText || "こんにちは。今日はどんなお話を読みましょうか。" }] }), { label: "sample" });
-      await store.putSample(id, wavBlob(levelSamples(trimSilence(a.samples, a.rate), a.rate, LEVEL_DB).samples, a.rate));
-      setStatus($("#dStatus"), "試聴音声を作りました");
+      await obtainSample(id, "sample");
+      setStatus($("#dStatus"), "試聴音声を用意しました");
       renderMyVoices();
     } catch (err) {
       setStatus($("#dStatus"), err.message, true);

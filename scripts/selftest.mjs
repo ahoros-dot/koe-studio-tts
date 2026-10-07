@@ -179,6 +179,7 @@ t("parseError: キーが違う", () => {
 t("buildTtsBody: 1人（指示なしは annotations 空）", () => {
   const b = gemini.buildTtsBody({ model: "m", mode: "solo", voice: "Zephyr", parts: [{ text: "あ", style: "" }, { text: "  " }, { text: "い", style: "calm" }] });
   assert.deepEqual(b.generation_config.speech_config, [{ voice: "Zephyr" }]);
+  assert.equal(b.store, false, "台本と音声を Google 側のログに残さない");
   assert.equal(b.input[0].content.length, 2);
   assert.deepEqual(b.input[0].content[0].annotations, []);
   assert.deepEqual(b.input[0].content[1].annotations, [{ type: "speech_metadata", style: "calm" }]);
@@ -186,11 +187,13 @@ t("buildTtsBody: 1人（指示なしは annotations 空）", () => {
 t("buildTtsBody: 2人", () => {
   const b = gemini.buildTtsBody({ model: "m", mode: "duo", speakers: [{ speaker: "A", voice: "Leda", extra: 1 }, { speaker: "B", voice: "Puck" }], parts: [{ speaker: "B", text: "う" }] });
   assert.deepEqual(b.generation_config.speech_config, { mode: "conversational", speakers: [{ speaker: "A", voice: "Leda" }, { speaker: "B", voice: "Puck" }] });
+  assert.equal(b.store, false);
   assert.deepEqual(b.input[0].content[0].annotations, [{ type: "speech_metadata", speaker: "B" }]);
 });
 t("codeSnippets: キーは環境変数の置き換え文字だけ", () => {
   const c = gemini.codeSnippets(gemini.buildTtsBody({ model: "m", mode: "solo", voice: "Zephyr", parts: [{ text: "あ" }] }));
   assert.match(c.curl, /\$GEMINI_API_KEY/);
+  assert.match(c.json, /"store": false/);
   assert.match(c.js, /process\.env\.GEMINI_API_KEY/);
   assert.doesNotMatch(c.curl + c.js, /AIza/);
 });

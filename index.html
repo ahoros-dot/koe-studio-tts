@@ -157,7 +157,7 @@
       <!-- ===== 声をつくる ===== -->
       <section class="view" id="view-design" aria-labelledby="h-design" hidden>
         <h1 id="h-design">声をつくる</h1>
-        <p class="lead">どんな人の声かを文章で書くと、新しい声を作ってあなたの Google のプロジェクトに保存します（200声まで、最後に使ってから1年で消えます）。作った声は「生成」の1人モードで選べます。</p>
+        <p class="lead">どんな人の声かを文章で書くと、新しい声を作ってあなたの Google のプロジェクトに保存します（200声まで、最後に使ってから1年で消えます）。作った声は「生成」の1人モードで選べます。名前と説明文も一緒に保存され、同じキーを持つ人なら一覧で見られるので、個人的なことは書かないでください。</p>
         <div class="design-layout">
           <form class="design-form" id="designForm" novalidate>
             <div class="field">
@@ -225,6 +225,7 @@
         <section class="panel" aria-labelledby="h-key">
           <h2 id="h-key">Gemini API キー</h2>
           <p class="help">キーは <strong>このブラウザの中にだけ</strong> 保存し、送り先は <code>generativelanguage.googleapis.com</code> だけです。書き出すファイルやコード表示には含めません。料金はキーの持ち主の Google アカウントにかかります。</p>
+          <p class="help">台本と作った音声は「保存しない」設定（<code>store: false</code>）で送るので、Google AI Studio のログ（Logs）にも残りません。残るのは、このブラウザの履歴だけです。</p>
           <form id="keyForm" novalidate>
             <div class="field">
               <label for="keyInput">API キー</label>

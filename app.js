@@ -8,6 +8,7 @@ import { findIssues, applySuggestion, mora, MORA_PER_SEC, splitSentences } from 
 import { buildCues, toSrt, toVtt } from "./subs.js";
 import { createClient, buildTtsBody, codeSnippets, MODELS, costUsd, YEN_PER_USD, voiceId } from "./gemini.js";
 import * as store from "./store.js";
+import { createStreamPlayer } from "./player.js";
 
 // ===================== 定数 =====================
 
@@ -52,7 +53,7 @@ const newId = () => (crypto.randomUUID ? crypto.randomUUID() : String(Date.now()
 
 const DEFAULT_STATE = () => ({
   view: "generate",
-  settings: { interval: 6.5, trim: true, level: true, theme: "auto", demo: false, keyMode: "local" },
+  settings: { interval: 6.5, trim: true, level: true, stream: true, theme: "auto", demo: false, keyMode: "local" },
   draft: {
     model: MODELS[0].id,
     mode: "solo",
@@ -235,6 +236,22 @@ function tts(body, opts) {
   return state.settings.demo ? demoTts(body, opts.signal) : client.tts(body, opts);
 }
 
+// キーなしで試すモードのストリーミング: 試聴音声を0.1秒ずつ、少し速めに流す（作りながら再生する様子を見られるように）
+async function demoStream(body, signal, onChunk) {
+  const { samples, rate } = await demoTts(body, signal);
+  const step = Math.round(rate * 0.1);
+  for (let i = 0; i < samples.length; i += step) {
+    if (signal && signal.aborted) throw new DOMException("中止しました", "AbortError");
+    onChunk(samples.slice(i, i + step));
+    await new Promise((r) => setTimeout(r, 40));
+  }
+  return { samples, rate };
+}
+
+function ttsStream(body, opts) {
+  return state.settings.demo ? demoStream(body, opts.signal, opts.onChunk) : client.ttsStream(body, opts);
+}
+
 // ===================== 声の情報 =====================
 
 function voiceInfo(id) {
@@ -262,10 +279,20 @@ const audio = new Audio();
 audio.preload = "auto";
 let playingKey = "";
 const blobUrls = new Map();
+// ストリーミング再生（作りながら再生）の状態。{ player, total, buckets, estSec }。鳴らし終わるか止めたら null
+let live = null;
+const liveActive = () => !!(live && live.player.active());
+function stopLive() {
+  if (!live) return;
+  live.player.stop();
+  live = null;
+  syncPlayButtons();
+  drawResultWave();
+}
 
 function syncPlayButtons() {
   for (const b of $$("[data-play-key]")) {
-    const on = b.dataset.playKey === playingKey && !audio.paused;
+    const on = (b.dataset.playKey === "result" && liveActive()) || (b.dataset.playKey === playingKey && !audio.paused);
     b.classList.toggle("playing", on);
     b.textContent = on ? "■" : "▶";
     b.setAttribute("aria-label", on ? "停止" : "再生");
@@ -273,6 +300,11 @@ function syncPlayButtons() {
 }
 
 async function togglePlay(key, getUrl) {
+  // ストリーミング再生が鳴っているあいだ、結果の ▶（■）はそれを止めるボタンになる。ほかの再生を始めるときも止める
+  if (liveActive()) {
+    stopLive();
+    if (key === "result") return;
+  }
   if (playingKey === key && !audio.paused) {
     audio.pause();
     syncPlayButtons();
@@ -641,6 +673,7 @@ function renderRunPanel() {
   for (const b of $$(".segmented [data-mode]")) b.setAttribute("aria-checked", String(b.dataset.mode === d.mode));
   $("#optTrim").checked = !!state.settings.trim;
   $("#optLevel").checked = !!state.settings.level;
+  $("#optStream").checked = state.settings.stream !== false;
 
   const voiceBtn = (id, slot) => {
     const v = voiceInfo(id);
@@ -740,6 +773,7 @@ $("#voiceFields").addEventListener("change", (e) => {
 
 $("#optTrim").addEventListener("change", (e) => { state.settings.trim = e.target.checked; save(); });
 $("#optLevel").addEventListener("change", (e) => { state.settings.level = e.target.checked; save(); });
+$("#optStream").addEventListener("change", (e) => { state.settings.stream = e.target.checked; save(); });
 
 // ===================== 生成の実行 =====================
 
@@ -768,12 +802,17 @@ async function runGenerate() {
   }
   const d = draft();
   const body = buildTtsBody({ model: d.model, mode: d.mode, parts: d.parts, voice: d.voice, speakers: d.speakers });
+  // ストリーミング再生の用意は、await より前（「生成する」を押した操作の中）でする。ブラウザは操作なしに音を出させないため
+  const player = state.settings.stream !== false ? startLive(d) : null;
   genController = new AbortController();
   $("#runBtn").disabled = true;
   $("#stopBtn").hidden = false;
   setStatus($("#runStatus"), state.settings.demo ? "試聴音声を用意しています…" : "送信しています…");
   try {
-    const a = await tts(body, { signal: genController.signal, label: "gen" });
+    const a = player
+      ? await ttsStream(body, { signal: genController.signal, label: "gen", onChunk: liveChunk })
+      : await tts(body, { signal: genController.signal, label: "gen" });
+    if (player) player.end();
     let s = a.samples;
     const rawDb = activeDb(s);
     if (state.settings.trim) s = trimSilence(s, a.rate);
@@ -800,13 +839,75 @@ async function runGenerate() {
     setStatus($("#runStatus"), `できました（${seconds(s, a.rate).toFixed(1)} 秒）${state.settings.demo ? "。キーなしで試すモードなので試聴音声です" : ""}`);
   } catch (e) {
     clearInterval(countdown);
+    if (player) {
+      stopLive();
+      if (!result) $("#result").hidden = true;
+    }
     if (e.name === "AbortError") setStatus($("#runStatus"), "中止しました");
     else setStatus($("#runStatus"), e.message || String(e), true);
   } finally {
     $("#runBtn").disabled = false;
     $("#stopBtn").hidden = true;
     genController = null;
+    setResultButtons();
   }
+}
+
+// ---- ストリーミング再生（作りながら再生） ----
+// 受信中は、結果のバーに届いたぶんの波形を伸ばしていき、鳴っている所まで色を付ける。
+// 横幅は台本から見積もった長さに合わせる（届いた長さがそれを超えたら、届いた長さに合わせる）
+const LIVE_BUCKET = 1200; // 波形の1本＝0.05秒
+
+function startLive(d) {
+  let player;
+  try {
+    player = createStreamPlayer({ rate: RATE });
+  } catch {
+    return null; // Web Audio が使えないブラウザでは、今までどおり全部届いてから再生する
+  }
+  stopLive();
+  audio.pause();
+  if (result && result.url) URL.revokeObjectURL(result.url);
+  result = null;
+  const est = d.parts.reduce((a, p) => a + mora(p.text), 0) / MORA_PER_SEC;
+  live = { player, total: 0, buckets: [], estSec: Math.max(1, est) };
+  player.onFinish = () => {
+    if (live && live.player === player) live = null;
+    syncPlayButtons();
+    drawResultWave();
+  };
+  $("#result").hidden = false;
+  $("#resultMeta").textContent = "生成しながら再生します。届いたところから順に鳴ります";
+  $("#resultPlay").dataset.playKey = "result";
+  setResultButtons();
+  syncPlayButtons();
+  drawResultWave();
+  if (window.matchMedia("(max-width: 860px)").matches) $("#result").scrollIntoView({ behavior: "smooth", block: "center" });
+  requestAnimationFrame(animateLive);
+  return player;
+}
+
+function liveChunk(s) {
+  if (!live) return;
+  if (!live.total) setStatus($("#runStatus"), "受信しながら再生しています…");
+  const b = live.buckets;
+  for (let i = 0; i < s.length; i++) {
+    const k = Math.floor((live.total + i) / LIVE_BUCKET);
+    const v = Math.abs(s[i]) / 32768;
+    if (b[k] === undefined || v > b[k]) b[k] = v;
+  }
+  live.total += s.length;
+  live.player.push(s);
+}
+
+function animateLive() {
+  drawResultWave();
+  if (liveActive()) requestAnimationFrame(animateLive);
+}
+
+// 結果がそろうまで、書き出しとコード表示は押せないようにする
+function setResultButtons() {
+  for (const id of ["#dlWav", "#dlSrt", "#dlVtt"]) $(id).disabled = !result;
 }
 
 $("#runBtn").addEventListener("click", runGenerate);
@@ -866,6 +967,23 @@ function drawWave(canvas, pk, progress = 0) {
 }
 
 function drawResultWave() {
+  if (liveActive()) {
+    const pos = live.player.position();
+    if (!result) {
+      // 受信中: 見積もりの長さを横幅にして、届いたぶんだけ波形を描く
+      const est = Math.max(live.estSec, live.total / RATE);
+      const pk = new Float32Array(Math.ceil((est * RATE) / LIVE_BUCKET));
+      live.buckets.forEach((v, k) => { if (k < pk.length) pk[k] = v; });
+      drawWave($("#resultWave"), pk, pos / est);
+      $("#resultTime").textContent = `${fmtSec(pos)} / 受信 ${fmtSec(live.total / RATE)}`;
+      return;
+    }
+    // 受信は終わり、まだ鳴っている: できあがった波形の上に、鳴っている位置を出す
+    const raw = live.player.receivedSec();
+    drawWave($("#resultWave"), result.peaks, raw ? pos / raw : 0);
+    $("#resultTime").textContent = `${fmtSec(pos)} / ${fmtSec(result.entry.sec)}`;
+    return;
+  }
   if (!result) return;
   const prog = playingKey === "result" && audio.duration ? audio.currentTime / audio.duration : 0;
   drawWave($("#resultWave"), result.peaks, prog);
@@ -879,6 +997,8 @@ function animateResult() {
 
 $("#resultWave").addEventListener("click", async (e) => {
   if (!result) return;
+  // ストリーミング再生中に波形を押したら、それを止めて、できあがった音声のその位置から鳴らす
+  if (liveActive()) stopLive();
   const r = e.target.getBoundingClientRect();
   const frac = Math.min(1, Math.max(0, (e.clientX - r.left) / r.width));
   if (playingKey !== "result" || audio.paused) await togglePlay("result", () => result.url);

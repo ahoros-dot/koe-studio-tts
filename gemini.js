@@ -3,7 +3,7 @@
    キーは x-goog-api-key ヘッダで送るだけで、URL にもログにも出さない。
    CORS は実測済み（2026-10-04、https://example.com から interactions / voices とも JS でレスポンスを読めた）。 */
 
-import { base64ToBytes, decodeAudioBytes } from "./audio.js";
+import { base64ToBytes, decodeAudioBytes, isWav, parseWav, RATE } from "./audio.js";
 
 export const API_BASE = "https://generativelanguage.googleapis.com/v1beta";
 
@@ -150,6 +150,92 @@ function withTimeout(signal, ms) {
   return signal;
 }
 
+// 通信そのものが失敗したとき（中止・時間切れ・オフライン）のエラーにそろえる
+function fetchFailure(e, signal) {
+  if (signal && signal.aborted) return e;
+  if (e && e.name === "TimeoutError") return new ApiError("時間がかかりすぎたので打ち切りました。台本を短くしてみてください", { status: 0 });
+  return parseError(0, String(e && e.message));
+}
+
+// SSE（server-sent events）を読み取る。push(text) に届いた文字列をそのまま渡すと、
+// 空行で区切られたイベントごとに data: の JSON を onEvent に渡す。行の途中で切れていても、CRLF でもよい。
+// 「data: [DONE]」と、JSON でない行は読み飛ばす（公式: 知らないイベントは飛ばす）
+export function sseParser(onEvent) {
+  let buf = "";
+  return {
+    push(text) {
+      buf += text;
+      for (;;) {
+        const m = buf.match(/\r?\n\r?\n/);
+        if (!m) break;
+        const block = buf.slice(0, m.index);
+        buf = buf.slice(m.index + m[0].length);
+        const data = block
+          .split(/\r?\n/)
+          .filter((l) => l.startsWith("data:"))
+          .map((l) => l.slice(5).replace(/^ /, ""))
+          .join("\n");
+        if (!data || data === "[DONE]") continue;
+        let ev;
+        try {
+          ev = JSON.parse(data);
+        } catch {
+          continue;
+        }
+        onEvent(ev);
+      }
+    },
+  };
+}
+
+// 音声の断片（バイト列）を Int16 の標本にして onChunk に渡し、全体も貯める。
+// 断片の境目で1バイト余ることがあっても次につなぐ。WAV で届いた場合（mime_type を指定したとき）は先頭のヘッダーを外す
+export function pcmCollector(onChunk = () => {}) {
+  const parts = [];
+  let total = 0;
+  let carry = null;
+  let first = true;
+  return {
+    push(bytes) {
+      if (first) {
+        first = false;
+        if (isWav(bytes)) {
+          const { samples } = parseWav(bytes);
+          parts.push(samples);
+          total += samples.length;
+          onChunk(samples);
+          return;
+        }
+      }
+      if (carry) {
+        const merged = new Uint8Array(bytes.length + 1);
+        merged[0] = carry;
+        merged.set(bytes, 1);
+        bytes = merged;
+        carry = null;
+      }
+      if (bytes.length % 2) {
+        carry = bytes[bytes.length - 1];
+        bytes = bytes.subarray(0, bytes.length - 1);
+      }
+      if (!bytes.length) return;
+      const { samples } = decodeAudioBytes(bytes);
+      parts.push(samples);
+      total += samples.length;
+      onChunk(samples);
+    },
+    finish() {
+      const out = new Int16Array(total);
+      let p = 0;
+      for (const s of parts) {
+        out.set(s, p);
+        p += s.length;
+      }
+      return out;
+    },
+  };
+}
+
 /* getKey: () => string、getInterval: () => ミリ秒（Tier 1 は1分10回までなので既定 6500）
    onStatus: ({ type: "wait"|"start"|"retry"|"done", label, until?, wait?, pending }) => void  画面の進み具合用 */
 export function createClient({ getKey, getInterval = () => 6500, onStatus = () => {} }) {
@@ -157,7 +243,8 @@ export function createClient({ getKey, getInterval = () => 6500, onStatus = () =
   let chain = Promise.resolve();
   let pending = 0;
 
-  async function call(method, path, body, { signal, timeoutMs = 180000, label = "", retries = 5 } = {}) {
+  // 送って、成功した Response を返す（本文はまだ読まない。ストリーミングでも使うため）。429・5xx は待って送り直す
+  async function send(method, path, body, { signal, timeoutMs = 180000, label = "", retries = 5 } = {}) {
     const key = getKey();
     if (!key) throw new ApiError("API キーが設定されていません。設定画面で入れてください", { status: 401 });
     for (let attempt = 1; ; attempt++) {
@@ -170,12 +257,10 @@ export function createClient({ getKey, getInterval = () => 6500, onStatus = () =
           signal: withTimeout(signal, timeoutMs),
         });
       } catch (e) {
-        if (signal && signal.aborted) throw e;
-        if (e && e.name === "TimeoutError") throw new ApiError("時間がかかりすぎたので打ち切りました。台本を短くしてみてください", { status: 0 });
-        throw parseError(0, String(e && e.message));
+        throw fetchFailure(e, signal);
       }
+      if (res.ok) return res;
       const raw = await res.text();
-      if (res.ok) return raw ? JSON.parse(raw) : {};
       const err = parseError(res.status, raw);
       // 1日の上限や、90秒より長く待てと言われたときは、待たずにすぐ知らせる
       const longWait = err.daily || (err.retryAfter != null && err.retryAfter > 90);
@@ -187,6 +272,17 @@ export function createClient({ getKey, getInterval = () => 6500, onStatus = () =
       }
       throw err;
     }
+  }
+
+  async function call(method, path, body, opts = {}) {
+    const res = await send(method, path, body, opts);
+    let raw;
+    try {
+      raw = await res.text();
+    } catch (e) {
+      throw fetchFailure(e, opts.signal);
+    }
+    return raw ? JSON.parse(raw) : {};
   }
 
   // 音声を作るリクエストは1本の列に並べ、前のリクエストから getInterval() ミリ秒あけて送る
@@ -219,6 +315,40 @@ export function createClient({ getKey, getInterval = () => 6500, onStatus = () =
       const hit = findAudio(json);
       if (!hit) throw new ApiError("応答に音声が入っていませんでした（台本が空か、安全のために止められた可能性があります）", { detail: JSON.stringify(json).slice(0, 300) });
       return decodeAudioBytes(base64ToBytes(hit.data));
+    });
+  }
+
+  // ストリーミング。作られた音声を断片ごとに onChunk(Int16Array) へ渡し、最後に全体を返す（{ samples, rate }）。
+  // 断片はヘッダーなしの PCM（audio/l16、24kHz・モノラル・16bit）。送り直すのは、音声が届き始める前の 429・5xx だけ
+  async function ttsStream(body, { signal, label = "音声を生成", onChunk = () => {} } = {}) {
+    return enqueue(label, signal, async () => {
+      const res = await send("POST", "/interactions", { ...body, stream: true }, { signal, label, timeoutMs: 600000 });
+      const pcm = pcmCollector(onChunk);
+      const sse = sseParser((ev) => {
+        if (ev.event_type === "error" || (ev.error && !ev.event_type)) {
+          const e = ev.error || {};
+          throw new ApiError(`生成の途中でエラーになりました: ${e.message || "不明なエラー"}`, { detail: JSON.stringify(e).slice(0, 300) });
+        }
+        if (ev.event_type === "step.delta" && ev.delta && ev.delta.type === "audio" && ev.delta.data) pcm.push(base64ToBytes(ev.delta.data));
+      });
+      const reader = res.body.getReader();
+      const dec = new TextDecoder();
+      try {
+        for (;;) {
+          const { value, done } = await reader.read();
+          if (done) break;
+          sse.push(dec.decode(value, { stream: true }));
+        }
+      } catch (e) {
+        if (e instanceof ApiError) throw e;
+        throw fetchFailure(e, signal);
+      } finally {
+        reader.releaseLock();
+      }
+      sse.push(dec.decode() + "\n\n");
+      const samples = pcm.finish();
+      if (!samples.length) throw new ApiError("応答に音声が入っていませんでした（台本が空か、安全のために止められた可能性があります）");
+      return { samples, rate: RATE };
     });
   }
 
@@ -257,7 +387,7 @@ export function createClient({ getKey, getInterval = () => 6500, onStatus = () =
     return call("DELETE", `/voices/${encodeURIComponent(voiceId(id))}`, null, { signal, retries: 2 });
   }
 
-  return { tts, createVoice, listVoices, getVoice, deleteVoice, pending: () => pending };
+  return { tts, ttsStream, createVoice, listVoices, getVoice, deleteVoice, pending: () => pending };
 }
 
 // API が "voices/voice_…" と資源名で返しても、"voice_…" だけで返しても使えるようにする

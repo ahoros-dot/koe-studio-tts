@@ -172,6 +172,8 @@ input:focus, select:focus, textarea:focus { border-color: var(--accent); outline
 .btn-primary:disabled { opacity: 0.5; cursor: not-allowed; }
 .btn-ghost { background: var(--surface); color: var(--text); border: 1px solid var(--line); }
 .btn-ghost:hover { border-color: var(--text-3); }
+.btn-ghost:disabled { opacity: 0.45; cursor: not-allowed; }
+.btn-ghost:disabled:hover { border-color: var(--line); }
 .btn-sm { padding: 5px 11px; font-size: 0.85rem; font-weight: 500; }
 .btn-primary:active:not(:disabled), .btn-ghost:active { transform: translateY(1px) scale(0.985); }
 .danger { color: var(--danger); }

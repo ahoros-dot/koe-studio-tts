@@ -1,12 +1,13 @@
 /* オフライン対応の Service Worker（ネットワーク優先・オフライン時はキャッシュ）
    静的ファイルを触ったら CACHE_NAME を必ず上げること。
    試聴 MP3 は先読みせず、聞いたときにキャッシュする（145本・約2MB を初回に全部落とさないため）。 */
-const CACHE_NAME = "koe-studio-v4";
+const CACHE_NAME = "koe-studio-v5";
 const ASSETS = [
   "./",
   "./index.html",
   "./style.css",
   "./app.js",
+  "./player.js",
   "./audio.js",
   "./gemini.js",
   "./store.js",

@@ -197,6 +197,42 @@ t("codeSnippets: キーは環境変数の置き換え文字だけ", () => {
   assert.match(c.js, /process\.env\.GEMINI_API_KEY/);
   assert.doesNotMatch(c.curl + c.js, /AIza/);
 });
+t("sseParser: 行の途中で切れても・CRLF でも読める、[DONE] と知らない行は飛ばす", () => {
+  const got = [];
+  const p = gemini.sseParser((ev) => got.push(ev.event_type + (ev.delta ? ":" + ev.delta.data : "")));
+  const stream =
+    'event: interaction.created\r\ndata: {"event_type":"interaction.created"}\r\n\r\n' +
+    'event: step.delta\ndata: {"index":0,"delta":{"type":"audio","data":"AQID"},"event_type":"step.delta"}\n\n' +
+    ": コメント行\n\n" +
+    "event: done\ndata: [DONE]\n\n";
+  // 7文字ずつに切って流す
+  for (let i = 0; i < stream.length; i += 7) p.push(stream.slice(i, i + 7));
+  assert.deepEqual(got, ["interaction.created", "step.delta:AQID"]);
+});
+t("sseParser: error イベントは onEvent に渡る（呼ぶ側で止める）", () => {
+  const got = [];
+  gemini.sseParser((ev) => got.push(ev)).push('event: error\ndata: {"error":{"message":"Deadline expired","code":"gateway_timeout"},"event_type":"error"}\n\n');
+  assert.equal(got[0].error.code, "gateway_timeout");
+});
+t("pcmCollector: 断片の境目の1バイトをつなぐ", () => {
+  const src = tone(0.01);
+  const bytes = new Uint8Array(src.buffer.slice(0));
+  const chunks = [];
+  const c = gemini.pcmCollector((s) => chunks.push(s.length));
+  // 奇数バイトずつに切る
+  for (let i = 0; i < bytes.length; i += 101) c.push(bytes.subarray(i, Math.min(bytes.length, i + 101)));
+  const out = c.finish();
+  assert.equal(out.length, src.length);
+  assert.deepEqual([...out.slice(0, 50)], [...src.slice(0, 50)]);
+  assert.equal(out[out.length - 1], src[src.length - 1]);
+  assert.equal(chunks.reduce((a, b) => a + b, 0), src.length);
+});
+t("pcmCollector: 先頭が WAV ならヘッダーを外す", () => {
+  const src = tone(0.05);
+  const c = gemini.pcmCollector();
+  c.push(audio.pcmToWav(src));
+  assert.equal(c.finish().length, src.length);
+});
 t("voiceId", () => {
   assert.equal(gemini.voiceId("voices/voice_abc"), "voice_abc");
   assert.equal(gemini.voiceId("voice_abc"), "voice_abc");

@@ -53,7 +53,7 @@ const newId = () => (crypto.randomUUID ? crypto.randomUUID() : String(Date.now()
 
 const DEFAULT_STATE = () => ({
   view: "generate",
-  settings: { interval: 6.5, trim: true, level: true, stream: true, theme: "auto", demo: false, keyMode: "local" },
+  settings: { interval: 6.5, trim: true, level: true, stream: true, keepLog: false, theme: "auto", demo: false, keyMode: "local" },
   draft: {
     model: MODELS[0].id,
     mode: "solo",
@@ -236,6 +236,9 @@ function tts(body, opts) {
   return state.settings.demo ? demoTts(body, opts.signal) : client.tts(body, opts);
 }
 
+// 音声を作るリクエストの中身。「Google 側の記録」の設定（既定は残さない）をここで付ける
+const ttsBody = (o) => buildTtsBody({ ...o, keepLog: !!state.settings.keepLog });
+
 // キーなしで試すモードのストリーミング: 試聴音声を0.1秒ずつ、少し速めに流す（作りながら再生する様子を見られるように）
 async function demoStream(body, signal, onChunk) {
   const { samples, rate } = await demoTts(body, signal);
@@ -342,7 +345,7 @@ async function obtainSample(id, label) {
       return blob;
     }
   }
-  const a = await client.tts(buildTtsBody({ model: MODELS[0].id, mode: "solo", voice: id, parts: [{ text: catalog.sampleText || "こんにちは。今日はどんなお話を読みましょうか。" }] }), { label });
+  const a = await client.tts(ttsBody({ model: MODELS[0].id, mode: "solo", voice: id, parts: [{ text: catalog.sampleText || "こんにちは。今日はどんなお話を読みましょうか。" }] }), { label });
   const blob = wavBlob(levelSamples(trimSilence(a.samples, a.rate), a.rate, LEVEL_DB).samples, a.rate);
   await store.putSample(id, blob).catch(() => {});
   return blob;
@@ -801,7 +804,7 @@ async function runGenerate() {
     return;
   }
   const d = draft();
-  const body = buildTtsBody({ model: d.model, mode: d.mode, parts: d.parts, voice: d.voice, speakers: d.speakers });
+  const body = ttsBody({ model: d.model, mode: d.mode, parts: d.parts, voice: d.voice, speakers: d.speakers });
   // ストリーミング再生の用意は、await より前（「生成する」を押した操作の中）でする。ブラウザは操作なしに音を出させないため
   const player = state.settings.stream !== false ? startLive(d) : null;
   genController = new AbortController();
@@ -1044,7 +1047,7 @@ $("#codeTabs").addEventListener("click", (e) => {
 });
 $("#showCode").addEventListener("click", () => {
   const d = draft();
-  openCode(result ? result.body : buildTtsBody({ model: d.model, mode: d.mode, parts: d.parts, voice: d.voice, speakers: d.speakers }));
+  openCode(result ? result.body : ttsBody({ model: d.model, mode: d.mode, parts: d.parts, voice: d.voice, speakers: d.speakers }));
 });
 $("#codeCopy").addEventListener("click", async () => {
   try {
@@ -1279,7 +1282,7 @@ async function runCompare() {
   try {
     for (const id of c.voices) {
       try {
-        const body = buildTtsBody({ model: draft().model, mode: "solo", voice: id, parts: [{ text: c.text, style: c.style }] });
+        const body = ttsBody({ model: draft().model, mode: "solo", voice: id, parts: [{ text: c.text, style: c.style }] });
         const a = await tts(body, { signal: cmpController.signal, label: `cmp:${id}` });
         const raw = trimSilence(a.samples, a.rate);
         const lv = levelSamples(raw, a.rate, LEVEL_DB).samples;
@@ -1610,6 +1613,7 @@ function renderSettings() {
   for (const r of $$('input[name="keyMode"]')) r.checked = r.value === state.settings.keyMode;
   $("#intervalInput").value = state.settings.interval;
   $("#demoToggle").checked = !!state.settings.demo;
+  $("#keepLogToggle").checked = !!state.settings.keepLog;
   $("#themeSelect").value = state.settings.theme;
   renderDict();
 }
@@ -1691,6 +1695,12 @@ $("#demoToggle").addEventListener("change", (e) => {
   state.settings.demo = e.target.checked;
   save();
   renderKeyChip();
+});
+
+$("#keepLogToggle").addEventListener("change", (e) => {
+  state.settings.keepLog = e.target.checked;
+  save();
+  toast(e.target.checked ? "これから作る音声は、Google AI Studio のログに残ります" : "これから作る音声は、Google 側のログに残しません");
 });
 
 $("#themeSelect").addEventListener("change", (e) => {

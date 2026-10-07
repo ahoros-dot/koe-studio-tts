@@ -184,6 +184,11 @@ t("buildTtsBody: 1人（指示なしは annotations 空）", () => {
   assert.deepEqual(b.input[0].content[0].annotations, []);
   assert.deepEqual(b.input[0].content[1].annotations, [{ type: "speech_metadata", style: "calm" }]);
 });
+t("buildTtsBody: 設定でログに残す（keepLog）と store: true", () => {
+  const b = gemini.buildTtsBody({ model: "m", mode: "solo", voice: "Zephyr", parts: [{ text: "あ" }], keepLog: true });
+  assert.equal(b.store, true);
+  assert.match(gemini.codeSnippets(b).json, /"store": true/);
+});
 t("buildTtsBody: 2人", () => {
   const b = gemini.buildTtsBody({ model: "m", mode: "duo", speakers: [{ speaker: "A", voice: "Leda", extra: 1 }, { speaker: "B", voice: "Puck" }], parts: [{ speaker: "B", text: "う" }] });
   assert.deepEqual(b.generation_config.speech_config, { mode: "conversational", speakers: [{ speaker: "A", voice: "Leda" }, { speaker: "B", voice: "Puck" }] });

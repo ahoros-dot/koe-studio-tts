@@ -25,7 +25,8 @@ export function costUsd(model, sec) {
 
 // mode: "solo"（1人）| "duo"（2人の掛け合い）
 // parts: [{ text, style, speaker? }]、voice: 1人のときの声、speakers: [{ speaker, voice }]（2人のとき）
-export function buildTtsBody({ model, mode, parts, voice, speakers }) {
+// keepLog: true なら、やりとりを Google 側のログに残す（設定画面の「Google 側の記録」。既定は残さない）
+export function buildTtsBody({ model, mode, parts, voice, speakers, keepLog = false }) {
   const content = parts
     .filter((p) => p.text.trim())
     .map((p) => {
@@ -38,8 +39,9 @@ export function buildTtsBody({ model, mode, parts, voice, speakers }) {
     model,
     input: [{ type: "user_input", content }],
     // Interactions API は既定で、やりとり（台本と作った音声）をプロジェクトのログに保存する（有料なら55日、AI Studio の Logs に出る）。
-    // こえスタジオは会話の続き（previous_interaction_id）も background も使わないので保存しない。2026-10-07 に TTS でも通ることを確認
-    store: false,
+    // こえスタジオは会話の続き（previous_interaction_id）も background も使わないので、既定では保存しない（2026-10-07 に TTS でも通ることを確認）。
+    // AI Studio で見返したい人は設定画面で残せる（keepLog）
+    store: !!keepLog,
     response_format: { type: "audio" },
     generation_config: {
       speech_config: mode === "duo" ? { mode: "conversational", speakers: speakers.map(({ speaker, voice }) => ({ speaker, voice })) } : [{ voice }],

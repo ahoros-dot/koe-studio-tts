@@ -227,7 +227,6 @@
         <section class="panel" aria-labelledby="h-key">
           <h2 id="h-key">Gemini API キー</h2>
           <p class="help">キーは <strong>このブラウザの中にだけ</strong> 保存し、送り先は <code>generativelanguage.googleapis.com</code> だけです。書き出すファイルやコード表示には含めません。料金はキーの持ち主の Google アカウントにかかります。</p>
-          <p class="help">台本と作った音声は「保存しない」設定（<code>store: false</code>）で送るので、Google AI Studio のログ（Logs）にも残りません。残るのは、このブラウザの履歴だけです。</p>
           <form id="keyForm" novalidate>
             <div class="field">
               <label for="keyInput">API キー</label>
@@ -249,6 +248,13 @@
             </div>
             <p class="run-status" id="keyStatus" role="status" aria-live="polite"></p>
           </form>
+        </section>
+
+        <section class="panel" aria-labelledby="h-log">
+          <h2 id="h-log">Google 側の記録（ログ）</h2>
+          <p class="help">Gemini API は、何も指定しないと、やりとり（台本・演技の指示・声・作った音声）をキーのプロジェクトに保存し、<a href="https://aistudio.google.com/logs" target="_blank" rel="noopener noreferrer">Google AI Studio のログ（Logs）</a>に表示します。こえスタジオは、既定では残しません（<code>store: false</code>）。残るのは、このブラウザの履歴だけです。</p>
+          <label class="check"><input type="checkbox" id="keepLogToggle"> 生成したやりとりを Google AI Studio のログに残す</label>
+          <p class="help">オンにすると、生成・聞き比べ・試聴音声を作るときのやりとりがログに残り、AI Studio で見返せます（<code>store: true</code>）。見られるのはキーのプロジェクトの持ち主だけです。残る日数は、有料のプロジェクトは既定で55日（AI Studio の Logs の設定で7・14・28・55日から選べます）、無料は1日です。有料のプロジェクトのログは、既定では Google の製品改善には使われません。オンにする前に作った音声は残りません。「声をつくる」で作った声は、この設定とは関係なく、プロジェクトに保存されます。</p>
         </section>
 
         <section class="panel" aria-labelledby="h-limits">
